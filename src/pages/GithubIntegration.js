@@ -3,42 +3,68 @@ import axios from "axios";
 import RepoList from "../components/RepoList";
 
 export default function GithubIntegration() {
-  const [username, setUsername] = useState("");
   const [token, setToken] = useState("");
+  const [user, setUser] = useState(null);
   const [repos, setRepos] = useState([]);
   const [loading, setLoading] = useState(false);
 
-  // 🧠 Load saved token & username (if exists)
+  // 🔄 Load token from URL or localStorage
   useEffect(() => {
-    const savedToken = localStorage.getItem("github_token");
-    const savedUsername = localStorage.getItem("github_username");
-    if (savedToken) setToken(savedToken);
-    if (savedUsername) setUsername(savedUsername);
+    const urlToken = new URLSearchParams(window.location.search).get("token");
+    const storedToken = localStorage.getItem("github_token");
+
+    if (urlToken) {
+      localStorage.setItem("github_token", urlToken);
+      setToken(urlToken);
+      window.history.replaceState({}, document.title, "/github"); // clean URL
+    } else if (storedToken) {
+      setToken(storedToken);
+    }
   }, []);
 
-  const handleConnect = async () => {
-    if (!username || !token) {
-      alert("Please enter GitHub username and token");
-      return;
-    }
+  // 👤 Fetch User Profile once token exists
+  useEffect(() => {
+    if (!token) return;
 
-    // 💾 Save token & username to localStorage for future use
-    localStorage.setItem("github_token", token);
-    localStorage.setItem("github_username", username);
+    const fetchUser = async () => {
+      try {
+        const res = await axios.get("https://api.github.com/user", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
 
+        setUser(res.data);
+        localStorage.setItem("github_user", JSON.stringify(res.data));
+
+        fetchRepos(res.data.login);
+      } catch (err) {
+        console.error(err);
+        alert("Authentication expired. Please log in again.");
+        localStorage.removeItem("github_token");
+      }
+    };
+
+    fetchUser();
+  }, [token]);
+
+  // 📦 Fetch Repositories
+  const fetchRepos = async (username) => {
     setLoading(true);
     try {
-      const response = await axios.get(
-        `https://api.github.com/users/${username}/repos`,
-        { headers: { Authorization: `token ${token}` } }
+      const res = await axios.get(
+        `https://api.github.com/users/${username}/repos?per_page=200`,
+        { headers: { Authorization: `Bearer ${token}` } }
       );
-      setRepos(response.data);
+      setRepos(res.data);
     } catch (error) {
       console.error(error);
-      alert("❌ Failed to fetch repositories. Check credentials or token permissions.");
-    } finally {
-      setLoading(false);
+      alert("Failed to load repositories.");
     }
+    setLoading(false);
+  };
+
+  // 🔐 Redirect to your backend OAuth URL
+  const handleGithubLogin = () => {
+    window.location.href = "http://localhost/Taskhub/backend/api/github_integration_oauth.php";
   };
 
   return (
@@ -47,71 +73,46 @@ export default function GithubIntegration() {
         🔗 GitHub Integration (Project Mitra)
       </h2>
 
-      <div className="bg-white p-6 rounded-lg shadow-md w-full md:w-2/3 lg:w-1/2 mx-auto">
-        <p className="text-gray-700 mb-5 leading-relaxed">
-          Connect your GitHub account to view, edit, and analyze your repositories.
-          <br />
-          Please enter your <strong>GitHub Username</strong> and
-          <strong> Personal Access Token (PAT)</strong>.
-        </p>
+      {!token || !user ? (
+        <div className="bg-white p-6 rounded-lg shadow-md w-full md:w-2/3 lg:w-1/2 mx-auto text-center">
+          <p className="text-gray-700 mb-4">
+            Connect your GitHub account to sync your repositories.
+          </p>
 
-        <div className="bg-blue-50 border border-blue-200 p-4 rounded-lg mb-6">
-          <h3 className="font-semibold text-blue-700 mb-2">
-            🔐 How to Generate a GitHub Personal Access Token (PAT)
-          </h3>
-          <ol className="list-decimal list-inside text-sm text-gray-700 space-y-1">
-            <li>
-              Go to{" "}
-              <a
-                href="https://github.com/settings/tokens"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-blue-600 underline"
-              >
-                GitHub Token Settings
-              </a>
-            </li>
-            <li>Click <strong>"Generate new token"</strong> → <em>"Fine-grained personal access token"</em></li>
-            <li>Under “Repository access”, choose your repo or all repositories.</li>
-            <li>Enable permissions:
-              <ul className="list-disc ml-6">
-                <li>✅ <strong>Contents</strong> → Read and write</li>
-                <li>✅ <strong>Metadata</strong> → Read-only</li>
-              </ul>
-            </li>
-            <li>Click <strong>Generate token</strong>.</li>
-            <li>Copy your token (starts with <code>ghp_</code> or <code>github_pat_</code>) and paste below.</li>
-          </ol>
+          <button
+  onClick={handleGithubLogin}
+  className="flex items-center justify-center gap-2 bg-black text-white px-5 py-3 rounded-lg font-semibold
+             hover:bg-gray-900 active:scale-95 transition-all shadow-md hover:shadow-lg"
+>
+  <svg viewBox="0 0 24 24" fill="white" className="w-6 h-6">
+    <path d="M12 .5C5.65.5.5 5.65.5 12c0 5.1 3.29 9.42 7.86 10.95.58.1.79-.25.79-.55v-2.1c-3.2.7-3.87-1.4-3.87-1.4-.53-1.3-1.32-1.64-1.32-1.64-1.08-.74.08-.73.08-.73 1.2.09 1.84 1.24 1.84 1.24 1.07 1.84 2.8 1.31 3.49 1 .11-.78.42-1.31.76-1.61-2.55-.29-5.23-1.28-5.23-5.72 0-1.26.45-2.29 1.2-3.1-.12-.3-.52-1.52.11-3.16 0 0 .98-.31 3.2 1.18a11.1 11.1 0 0 1 5.82 0c2.22-1.5 3.2-1.18 3.2-1.18.63 1.64.23 2.86.11 3.16.75.82 1.2 1.84 1.2 3.1 0 4.46-2.69 5.42-5.25 5.7.43.37.82 1.1.82 2.24v3.31c0 .31.21.66.8.55A10.97 10.97 0 0 0 23.5 12C23.5 5.65 18.35.5 12 .5z"/>
+  </svg>
+  Continue with GitHub
+</button>
+
         </div>
+      ) : (
+        <>
+          <div className="bg-white p-4 rounded-lg shadow-md mb-6 w-full md:w-2/3 mx-auto">
+            <div className="flex items-center gap-4">
+              <img
+                src={user.avatar_url}
+                alt="avatar"
+                className="h-12 w-12 rounded-full"
+              />
+              <div>
+                <h3 className="font-bold">{user.name || user.login}</h3>
+                <p className="text-gray-600">@{user.login}</p>
+              </div>
+            </div>
+          </div>
 
-        <input
-          type="text"
-          placeholder="GitHub Username"
-          className="border p-2 rounded w-full mb-3 focus:ring-2 focus:ring-blue-400"
-          value={username}
-          onChange={(e) => setUsername(e.target.value)}
-        />
+          {repos.length > 0 && (
+            <RepoList repos={repos} token={token} username={user.login} />
+          )}
 
-        <input
-          type="password"
-          placeholder="GitHub Personal Access Token"
-          className="border p-2 rounded w-full mb-3 focus:ring-2 focus:ring-blue-400"
-          value={token}
-          onChange={(e) => setToken(e.target.value)}
-        />
-
-        <button
-          onClick={handleConnect}
-          className="bg-blue-600 text-white px-4 py-2 rounded w-full hover:bg-blue-700 transition-all"
-        >
-          {loading ? "Loading Repositories..." : "🔗 Connect & Fetch Repos"}
-        </button>
-      </div>
-
-      {repos.length > 0 && (
-        <div className="mt-10">
-          <RepoList repos={repos} token={token} username={username} />
-        </div>
+          {loading && <p className="text-center text-blue-600">Loading...</p>}
+        </>
       )}
     </div>
   );
