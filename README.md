@@ -61,6 +61,12 @@ https://github-integration-lab.netlify.app/
 
 > Replace the placeholders below with real screenshots in `/assets` before publishing.
 
+<img src="/assets/screenshot-1.png" alt="Repo list / search">
+<img src="/assets/screenshot-2.png" alt="Repo details & commit list">
+<img src="/assets/screenshot-3.png" alt="Branch manager modal">
+
+
+
 - `assets/screenshot-1.png` — Repo list / search  
 - `assets/screenshot-2.png` — Repo details & commit list  
 - `assets/screenshot-3.png` — Branch manager modal
