@@ -14,17 +14,7 @@ A developer-focused dashboard to explore GitHub repositories, analyze commits, m
 - [Key features](#key-features)  
 - [Tech stack](#tech-stack)  
 - [Screenshots](#screenshots)  
-- [Getting started (frontend)](#getting-started-frontend)  
-- [Optional: Backend proxy (recommended)](#optional-backend-proxy-recommended)  
-- [Configuration / Environment variables](#configuration--environment-variables)  
-- [Usage guide](#usage-guide)  
-- [Branch management features](#branch-management-features)  
-- [Security notes](#security-notes)  
-- [Troubleshooting](#troubleshooting)  
-- [Contributing](#contributing)  
-- [Roadmap](#roadmap)  
-- [License](#license)  
-- [Contact](#contact)
+- [Getting started (frontend)](#getting-started-frontend) 
 
 ---
 
@@ -81,3 +71,9 @@ https://github-integration-lab.netlify.app/
 ```bash
 git clone https://github.com/<your-username>/github-integration-lab.git
 cd github-integration-lab
+npm install
+npm start
+Local: http://localhost:3000
+```
+
+
