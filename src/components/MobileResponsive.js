@@ -5,6 +5,15 @@ import React from "react";
  * Provides responsive grid and flex utilities
  */
 
+// Default wrapper component
+export default function MobileResponsive({ children, className = "" }) {
+  return (
+    <div className={`w-full ${className}`}>
+      {children}
+    </div>
+  );
+}
+
 export function ResponsiveGrid({ children, cols = 1, mdCols = 2, lgCols = 3, gap = 4, className = "" }) {
   const colClasses = {
     1: "grid-cols-1",
