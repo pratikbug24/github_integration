@@ -1,0 +1,39 @@
+version: '3.8'
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: api
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:5173}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Optional: Frontend service (uncomment if running without Vercel/Netlify)
+  # frontend:
+  #   image: node:20-alpine
+  #   working_dir: /app
+  #   command: sh -c "npm install && npm run dev"
+  #   volumes:
+  #     - ./src:/app/src
+  #     - ./public:/app/public
+  #     - ./package.json:/app/package.json
+  #   ports:
+  #     - "5173:5173"
+  #   environment:
+  #     - REACT_APP_API_URL=http://localhost:3000
+  #   depends_on:
+  #     - api
