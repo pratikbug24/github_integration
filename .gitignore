@@ -1,0 +1,37 @@
+# Dependencies
+node_modules/
+api/node_modules/
+server/node_modules/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+api/.env
+server/.env
+
+# Build outputs
+build/
+dist/
+.next/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Vercel
+.vercel/
+
+# Docker
+.dockerignore
