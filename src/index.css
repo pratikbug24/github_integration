@@ -1,3 +1,240 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Mobile Responsive Enhancements */
+@layer base {
+  /* Safe area for mobile devices */
+  .safe-area-pb {
+    padding-bottom: env(safe-area-inset-bottom, 0);
+  }
+  
+  /* Prevent horizontal scroll */
+  body {
+    overflow-x: hidden;
+  }
+  
+  /* Better touch targets on mobile */
+  button, a, [role="button"] {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  
+  /* Prevent text selection on interactive elements */
+  .no-select {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  
+  /* Smooth scrolling */
+  html {
+    scroll-behavior: smooth;
+  }
+  
+  /* Dark mode styles */
+  .dark {
+    color-scheme: dark;
+  }
+}
+
+@layer components {
+  /* Mobile-friendly cards */
+  .mobile-card {
+    @apply bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm;
+  }
+  
+  /* Mobile bottom navigation */
+  .mobile-nav {
+    @apply fixed bottom-0 left-0 right-0 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 z-40;
+  }
+  
+  /* Responsive container */
+  .container-responsive {
+    @apply w-full px-4 mx-auto;
+  }
+  
+  /* Touch-friendly button */
+  .btn-touch {
+    @apply px-4 py-3 rounded-lg font-medium transition-all active:scale-95;
+  }
+  
+  /* Mobile-friendly inputs */
+  .input-touch {
+    @apply w-full px-4 py-3 text-base border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 focus:border-transparent;
+  }
+  
+  /* Scrollable container */
+  .scroll-touch {
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+  }
+  
+  /* Skeleton loading */
+  .skeleton {
+    @apply animate-pulse bg-gray-200 dark:bg-gray-700 rounded;
+  }
+}
+
+@layer utilities {
+  /* Hide scrollbar but keep functionality */
+  .hide-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  
+  .hide-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  
+  /* Truncate with ellipsis */
+  .line-clamp-1 {
+    display: -webkit-box;
+    -webkit-line-clamp: 1;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  
+  .line-clamp-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  
+  .line-clamp-3 {
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  
+  /* Touch feedback */
+  .touch-feedback:active {
+    @apply opacity-80 scale-98;
+  }
+  
+  /* Responsive text */
+  .text-responsive {
+    @apply text-base md:text-lg;
+  }
+  
+  /* Full height minus header/footer */
+  .h-screen-nav {
+    height: calc(100vh - 64px);
+  }
+  
+  /* Responsive padding */
+  .p-responsive {
+    @apply p-4 md:p-6;
+  }
+  
+  /* Responsive margins */
+  .m-responsive {
+    @apply m-4 md:m-6;
+  }
+  
+  /* Glass morphism */
+  .glass {
+    @apply bg-white/80 dark:bg-gray-900/80 backdrop-blur-md;
+  }
+  
+  /* Gradient text */
+  .text-gradient {
+    @apply bg-clip-text text-transparent bg-gradient-to-r;
+  }
+}
+
+/* Responsive breakpoints helper classes */
+@media (max-width: 640px) {
+  .sm\:hidden {
+    display: none !important;
+  }
+  
+  .sm\:block {
+    display: block !important;
+  }
+}
+
+@media (min-width: 641px) and (max-width: 768px) {
+  .md\:hidden {
+    display: none !important;
+  }
+  
+  .md\:block {
+    display: block !important;
+  }
+}
+
+@media (min-width: 769px) and (max-width: 1024px) {
+  .lg\:hidden {
+    display: none !important;
+  }
+  
+  .lg\:block {
+    display: block !important;
+  }
+}
+
+/* Animation utilities */
+@keyframes slideInLeft {
+  from {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideInRight {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideInUp {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.animate-slideInLeft {
+  animation: slideInLeft 0.3s ease-out;
+}
+
+.animate-slideInRight {
+  animation: slideInRight 0.3s ease-out;
+}
+
+.animate-slideInUp {
+  animation: slideInUp 0.3s ease-out;
+}
+
+/* Tooltip dark mode support */
+:root {
+  --tooltip-bg: #ffffff;
+  --tooltip-border: #e5e7eb;
+}
+
+.dark {
+  --tooltip-bg: #1f2937;
+  --tooltip-border: #374151;
+}
+
+/* Print styles */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+}
