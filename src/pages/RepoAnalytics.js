@@ -1,5 +1,5 @@
 // RepoAnalytics.jsx
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useLocation, useParams, useNavigate } from "react-router-dom";
 import axios from "axios";
 import html2canvas from "html2canvas";
@@ -18,7 +18,18 @@ import {
   PieChart,
   Pie,
   Cell,
+  AreaChart,
+  Area,
 } from "recharts";
+
+// Theme Context for dark mode support
+import { useTheme } from "../context/ThemeContext";
+
+// CSV Export utility
+import { exportToCSV } from "../utils/csvExport";
+
+// Mobile Responsive wrapper
+import MobileResponsive from "../components/MobileResponsive";
 
 // Optional nice-to-have imports (if installed)
 let SyntaxHighlighter;
@@ -29,6 +40,53 @@ try {
   SyntaxHighlighter = null;
 }
 
+// Skeleton loader component
+const Skeleton = ({ className }) => (
+  <div className={`animate-pulse bg-gray-200 dark:bg-gray-700 rounded ${className}`} />
+);
+
+// Empty state component
+const EmptyState = ({ message, icon = "📭" }) => (
+  <div className="text-center py-12 text-gray-500 dark:text-gray-400">
+    <div className="text-4xl mb-2">{icon}</div>
+    <div>{message}</div>
+  </div>
+);
+
+// Loading skeleton for the main content
+const LoadingSkeleton = () => (
+  <div className="p-6 bg-gray-50 dark:bg-gray-900 min-h-screen">
+    <div className="flex items-center justify-between mb-6">
+      <div className="flex-1">
+        <Skeleton className="h-8 w-64 mb-2" />
+        <Skeleton className="h-4 w-96 mb-4" />
+        <div className="flex gap-3">
+          <Skeleton className="h-8 w-32" />
+          <Skeleton className="h-8 w-32" />
+        </div>
+      </div>
+      <Skeleton className="w-12 h-12 rounded" />
+    </div>
+    <div className="grid md:grid-cols-3 gap-4 mb-6">
+      {[1, 2, 3].map((i) => (
+        <div key={i} className="bg-white dark:bg-gray-800 p-4 rounded shadow">
+          <Skeleton className="h-4 w-24 mb-2" />
+          <Skeleton className="h-8 w-16 mb-2" />
+          <Skeleton className="h-3 w-32" />
+        </div>
+      ))}
+    </div>
+    <div className="grid md:grid-cols-2 gap-6">
+      {[1, 2].map((i) => (
+        <div key={i} className="bg-white dark:bg-gray-800 p-4 rounded shadow h-64">
+          <Skeleton className="h-5 w-32 mb-4" />
+          <Skeleton className="h-40 w-full" />
+        </div>
+      ))}
+    </div>
+  </div>
+);
+
 const DEFAULT_LOGO =
   "sandbox:/mnt/data/09bdc030-fafc-49e3-aa81-a1333a2b4d77.png";
 
@@ -36,6 +94,9 @@ export default function RepoAnalytics() {
   const { username: routeUsername, repoName } = useParams();
   const { state } = useLocation();
   const navigate = useNavigate();
+
+  // Theme context for dark mode support
+  const { theme } = useTheme();
 
   // token and user info (populated by your OAuth flow & stored in localStorage)
   const token = state?.token || localStorage.getItem("github_token");
@@ -60,6 +121,27 @@ export default function RepoAnalytics() {
   const [prs, setPRs] = useState([]);
   const [heatmapData, setHeatmapData] = useState({});
   const [error, setError] = useState("");
+
+  // NEW: Search and filter states
+  const [commitSearch, setCommitSearch] = useState("");
+  const [prSearch, setPrSearch] = useState("");
+  const [branchSearch, setBranchSearch] = useState("");
+
+  // NEW: Pagination states
+  const [commitsPage, setCommitsPage] = useState(1);
+  const [prsPage, setPrsPage] = useState(1);
+  const [contributorsPage, setContributorsPage] = useState(1);
+  const [totalCommitsPages, setTotalCommitsPages] = useState(1);
+  const [totalPrsPages, setTotalPrsPages] = useState(1);
+  const [loadingMore, setLoadingMore] = useState(false);
+
+  // NEW: Issue metrics
+  const [issueMetrics, setIssueMetrics] = useState({
+    open: 0,
+    closed: 0,
+    avgTimeToClose: 0,
+    total: 0
+  });
 
   // diff & commit details
   const [selectedCommit, setSelectedCommit] = useState(null);
@@ -88,11 +170,133 @@ export default function RepoAnalytics() {
 
   const [selectedCommitSha, setSelectedCommitSha] = useState(null);
 
+  // NEW: Loading state
+  const [isLoading, setIsLoading] = useState(true);
+
   // headers memoized
   const headers = useMemo(
     () => ({ Authorization: token ? `token ${token}` : undefined }),
     [token]
   );
+
+  // NEW: Filtered data with useMemo for performance
+  const filteredCommits = useMemo(() => {
+    if (!commitSearch) return recentCommits;
+    return recentCommits.filter(c =>
+      c.commit.message.toLowerCase().includes(commitSearch.toLowerCase()) ||
+      c.sha.toLowerCase().includes(commitSearch.toLowerCase()) ||
+      (c.commit.author?.name || "").toLowerCase().includes(commitSearch.toLowerCase())
+    );
+  }, [recentCommits, commitSearch]);
+
+  const filteredPRs = useMemo(() => {
+    if (!prSearch) return prs;
+    return prs.filter(p =>
+      p.title.toLowerCase().includes(prSearch.toLowerCase()) ||
+      p.user.login.toLowerCase().includes(prSearch.toLowerCase()) ||
+      p.number.toString().includes(prSearch)
+    );
+  }, [prs, prSearch]);
+
+  const filteredBranches = useMemo(() => {
+    if (!branchSearch) return branchActivity;
+    return branchActivity.filter(b =>
+      b.name.toLowerCase().includes(branchSearch.toLowerCase())
+    );
+  }, [branchActivity, branchSearch]);
+
+  // NEW: Memoized PR aggregates
+  const prAgg = useMemo(() => {
+    const open = prs.filter((p) => p.state === "open").length;
+    const closed = prs.filter((p) => p.state === "closed").length;
+    const merged = prs.filter((p) => p.merged_at).length;
+    return { open, closed, merged, total: prs.length };
+  }, [prs]);
+
+  // NEW: CSV Export handlers
+  const handleExportCommits = useCallback(() => {
+    const exportData = filteredCommits.map(c => ({
+      sha: c.sha,
+      message: c.commit.message.split('\n')[0],
+      author: c.commit.author?.name || c.commit.committer?.name,
+      date: new Date(c.commit.author?.date || c.commit.committer?.date).toLocaleString(),
+      url: `${repoInfo.html_url}/commit/${c.sha}`
+    }));
+    exportToCSV(exportData, `${repoName}-commits.csv`);
+  }, [filteredCommits, repoInfo, repoName]);
+
+  const handleExportPRs = useCallback(() => {
+    const exportData = filteredPRs.map(p => ({
+      number: p.number,
+      title: p.title,
+      state: p.state,
+      author: p.user.login,
+      created_at: new Date(p.created_at).toLocaleString(),
+      merged_at: p.merged_at ? new Date(p.merged_at).toLocaleString() : 'N/A',
+      url: p.html_url
+    }));
+    exportToCSV(exportData, `${repoName}-pull-requests.csv`);
+  }, [filteredPRs, repoName]);
+
+  const handleExportBranches = useCallback(() => {
+    const exportData = filteredBranches.map(b => ({
+      name: b.name,
+      recent_commits: b.commits,
+      health: branchHealth[b.name] ?? 'N/A',
+      url: `${repoInfo.html_url}/tree/${b.name}`
+    }));
+    exportToCSV(exportData, `${repoName}-branches.csv`);
+  }, [filteredBranches, branchHealth, repoInfo, repoName]);
+
+  const handleExportContributors = useCallback(() => {
+    const exportData = contributors.map(c => ({
+      login: c.login,
+      contributions: c.contributions,
+      avatar_url: c.avatar_url
+    }));
+    exportToCSV(exportData, `${repoName}-contributors.csv`);
+  }, [contributors, repoName]);
+
+  // NEW: Pagination fetch functions
+  const fetchMoreCommits = useCallback(async () => {
+    if (loadingMore || commitsPage >= totalCommitsPages) return;
+    setLoadingMore(true);
+    try {
+      const nextPage = commitsPage + 1;
+      const res = await axios.get(
+        `https://api.github.com/repos/${username}/${repoName}/commits?per_page=50&page=${nextPage}`,
+        { headers }
+      );
+      const newCommits = res.data || [];
+      setRecentCommits(prev => [...prev, ...newCommits]);
+      setCommitsPage(nextPage);
+      setTotalCommitsPages(Math.ceil(200 / 50)); // GitHub API max 200 for unauth
+    } catch (err) {
+      console.error("fetchMoreCommits error:", err);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [loadingMore, commitsPage, totalCommitsPages, username, repoName, headers]);
+
+  const fetchMorePRs = useCallback(async () => {
+    if (loadingMore || prsPage >= totalPrsPages) return;
+    setLoadingMore(true);
+    try {
+      const nextPage = prsPage + 1;
+      const res = await axios.get(
+        `https://api.github.com/repos/${username}/${repoName}/pulls?per_page=50&page=${nextPage}&state=all`,
+        { headers }
+      );
+      const newPRs = res.data || [];
+      setPRs(prev => [...prev, ...newPRs]);
+      setPrsPage(nextPage);
+      setTotalPrsPages(Math.ceil(200 / 50));
+    } catch (err) {
+      console.error("fetchMorePRs error:", err);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [loadingMore, prsPage, totalPrsPages, username, repoName, headers]);
 
   // ----------------------------------------
   // 1) Lifecycle - load repository analytics
@@ -103,8 +307,12 @@ export default function RepoAnalytics() {
         setError(
           "Authentication or repo info missing. Please sign in and select a repo."
         );
+        setIsLoading(false);
         return;
       }
+
+      setIsLoading(true);
+      setError("");
 
       try {
         // repository core info
@@ -130,7 +338,7 @@ export default function RepoAnalytics() {
             { headers }
           ),
           axios.get(
-            `https://api.github.com/repos/${username}/${repoName}/issues?per_page=100`,
+            `https://api.github.com/repos/${username}/${repoName}/issues?per_page=100&state=all`,
             { headers }
           ),
           axios.get(
@@ -163,10 +371,36 @@ export default function RepoAnalytics() {
         ]);
 
         const commits = commitsRes.data || [];
+        const issues = issuesRes.data || [];
+        const pulls = pullsRes.data || [];
+
+        // NEW: Calculate issue metrics
+        const openIssues = issues.filter(i => !i.pull_request && i.state === 'open');
+        const closedIssues = issues.filter(i => !i.pull_request && i.state === 'closed');
+        
+        // Calculate average time to close (for closed issues)
+        let totalTime = 0;
+        let closedWithTime = 0;
+        closedIssues.forEach(issue => {
+          if (issue.closed_at && issue.created_at) {
+            const created = new Date(issue.created_at);
+            const closed = new Date(issue.closed_at);
+            totalTime += (closed - created) / (1000 * 60 * 60 * 24); // days
+            closedWithTime++;
+          }
+        });
+        
+        setIssueMetrics({
+          open: openIssues.length,
+          closed: closedIssues.length,
+          avgTimeToClose: closedWithTime > 0 ? (totalTime / closedWithTime).toFixed(1) : 0,
+          total: issues.filter(i => !i.pull_request).length
+        });
+
         setAnalytics({
           commits: commits.length,
-          issues: (issuesRes.data || []).length,
-          pulls: (pullsRes.data || []).length,
+          issues: issues.filter(i => !i.pull_request).length,
+          pulls: pulls.length,
         });
 
         setContributors(contributorsRes.data || []);
@@ -186,7 +420,7 @@ export default function RepoAnalytics() {
         );
         setRecentCommits((commits || []).slice(0, 40));
         setBranches(branchesRes.data || []);
-        setPRs(prsRes.data || []);
+        setPRs(pulls);
         setLicenseInfo(licenseRes?.data || null);
 
         // compute heatmap & churn & top files
@@ -194,17 +428,36 @@ export default function RepoAnalytics() {
         computeCodeChurnFromCommits(commits);
         computeBranchActivity(username, repoName);
         detectDependencyWarnings(username, repoName);
+
+        setIsLoading(false);
       } catch (err) {
         console.error("fetchData error:", err);
         setError(
           "Failed to fetch repository analytics. Check token scopes and network."
         );
+        setIsLoading(false);
       }
     };
 
     fetchData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [username, repoName, token]);
+
+  // NEW: Retry function for error state
+  const handleRetry = useCallback(() => {
+    // Reset pagination states
+    setCommitsPage(1);
+    setPrsPage(1);
+    setContributorsPage(1);
+    setTotalCommitsPages(1);
+    setTotalPrsPages(1);
+    // Trigger refetch by clearing cache and re-running effect
+    setIsLoading(true);
+    setError("");
+    // Re-trigger the effect
+    const event = new Event('visibilitychange');
+    document.dispatchEvent(event);
+  }, []);
 
   // ----------------------------------------
   // computeHeatmap: standardized 90-day contribution map
@@ -677,26 +930,39 @@ export default function RepoAnalytics() {
   // ----------------------------------------
   // Render main
   // ----------------------------------------
-  if (error) {
-    return (
-      <div className="p-6">
-        <div className="bg-red-50 text-red-700 p-6 rounded">{error}</div>
-        <div className="mt-4">
-          <button
-            onClick={() => navigate("/github/repolist")}
-            className="px-4 py-2 bg-blue-600 text-white rounded"
-          >
-            Back to Repo List
-          </button>
-        </div>
-      </div>
-    );
+
+  // NEW: Show loading skeleton
+  if (isLoading || (!repoInfo && !error)) {
+    return <LoadingSkeleton />;
   }
 
-  if (!repoInfo || !analytics) {
+  // NEW: Improved error state with retry
+  if (error) {
     return (
-      <div className="flex items-center justify-center h-screen">
-        <div className="text-gray-600">Loading repository analytics...</div>
+      <div className="p-6 bg-gray-50 dark:bg-gray-900 min-h-screen flex items-center justify-center">
+        <div className="bg-white dark:bg-gray-800 p-8 rounded-2xl shadow-xl max-w-md w-full">
+          <div className="text-center">
+            <div className="text-5xl mb-4">⚠️</div>
+            <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-2">
+              Oops! Something went wrong
+            </h2>
+            <p className="text-gray-600 dark:text-gray-400 mb-6">{error}</p>
+            <div className="flex flex-col gap-3">
+              <button
+                onClick={handleRetry}
+                className="w-full px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition flex items-center justify-center gap-2"
+              >
+                🔄 Try Again
+              </button>
+              <button
+                onClick={() => navigate("/github/repolist")}
+                className="w-full px-4 py-3 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition"
+              >
+                ← Back to Repo List
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
     );
   }
@@ -718,281 +984,452 @@ export default function RepoAnalytics() {
     "#ff6b6b",
   ];
 
-  return (
-    <div className="p-6 bg-gray-50 min-h-screen">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-800">
-            {repoInfo.full_name}
-          </h1>
-          <p className="text-sm text-gray-500">{repoInfo.description}</p>
-          <div className="flex gap-3 mt-2">
-            <a
-              href={repoInfo.html_url}
-              target="_blank"
-              rel="noreferrer"
-              className="text-sm px-3 py-1 bg-slate-800 text-white rounded"
-            >
-              Open on GitHub
-            </a>
-            <button
-              onClick={() => downloadMonthlyPDF(true)}
-              className="text-sm px-3 py-1 bg-indigo-600 text-white rounded"
-            >
-              Export Monthly PDF
-            </button>
-            <button
-              onClick={() => alert("Generate weekly digest (backend required)")}
-              className="text-sm px-3 py-1 bg-amber-500 text-white rounded"
-            >
-              Send Weekly Digest
-            </button>
-          </div>
-        </div>
+  // NEW: Dark mode card class
+  const cardClass = "bg-white dark:bg-gray-800 p-4 rounded-xl shadow-md hover:shadow-lg transition-shadow";
+  const titleClass = "font-semibold text-gray-800 dark:text-white";
+  const textClass = "text-gray-600 dark:text-gray-300";
 
-        <div className="flex items-center gap-4">
-          <img src={DEFAULT_LOGO} alt="logo" className="w-12 h-12 rounded" />
-          <div className="text-right">
-            <div className="text-xs text-gray-500">Connected as</div>
-            <div className="text-sm font-medium">
-              {github_user?.login || username}
+  return (
+    <MobileResponsive>
+      <div className="p-4 md:p-6 bg-gray-50 dark:bg-gray-900 min-h-screen">
+        {/* Header */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between mb-6 gap-4">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-800 dark:text-white">
+              {repoInfo.full_name}
+            </h1>
+            <p className="text-sm text-gray-500 dark:text-gray-400">{repoInfo.description}</p>
+            <div className="flex flex-wrap gap-2 mt-3">
+              <a
+                href={repoInfo.html_url}
+                target="_blank"
+                rel="noreferrer"
+                className="text-sm px-3 py-1.5 bg-slate-800 dark:bg-slate-700 text-white rounded-lg hover:bg-slate-700 transition"
+              >
+                🔗 Open on GitHub
+              </a>
+              <button
+                onClick={() => downloadMonthlyPDF(true)}
+                className="text-sm px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition"
+              >
+                📄 Export PDF
+              </button>
+              <button
+                onClick={handleExportCommits}
+                className="text-sm px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg transition"
+              >
+                📊 Export CSV
+              </button>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-4">
+            <img src={DEFAULT_LOGO} alt="logo" className="w-12 h-12 rounded-lg hidden md:block" />
+            <div className="text-right">
+              <div className="text-xs text-gray-500 dark:text-gray-400">Connected as</div>
+              <div className="text-sm font-medium text-gray-800 dark:text-white">
+                {github_user?.login || username}
+              </div>
             </div>
           </div>
         </div>
-      </div>
 
-      {/* Top overview */}
-      <div className="grid md:grid-cols-3 gap-4">
-        <div className="bg-white p-4 rounded shadow">
-          <div className="text-sm text-gray-500">Commits</div>
-          <div className="text-2xl font-bold">{analytics.commits}</div>
-          <div className="text-xs text-gray-400 mt-1">
-            Recent 60 commits analysed
+        {/* Top overview - Dark mode cards */}
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3 md:gap-4 mb-6">
+          <div className={`${cardClass} border-l-4 border-blue-500`}>
+            <div className={`text-sm ${textClass}`}>📝 Commits</div>
+            <div className="text-2xl md:text-3xl font-bold text-blue-600 dark:text-blue-400">
+              {analytics.commits.toLocaleString()}
+            </div>
+            <div className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+              Last 200 commits
+            </div>
+          </div>
+
+          <div className={`${cardClass} border-l-4 border-yellow-500`}>
+            <div className={`text-sm ${textClass}`}>📋 Open Issues</div>
+            <div className="text-2xl md:text-3xl font-bold text-yellow-600 dark:text-yellow-400">
+              {issueMetrics.open}
+            </div>
+            <div className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+              {issueMetrics.avgTimeToClose > 0 ? `Avg close: ${issueMetrics.avgTimeToClose}d` : 'No closed issues'}
+            </div>
+          </div>
+
+          <div className={`${cardClass} border-l-4 border-purple-500 col-span-2 md:col-span-1`}>
+            <div className={`text-sm ${textClass}`}>🔀 Pull Requests</div>
+            <div className="text-2xl md:text-3xl font-bold text-purple-600 dark:text-purple-400">
+              {prAgg.total}
+            </div>
+            <div className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+              {prAgg.merged} merged • {prAgg.open} open
+            </div>
           </div>
         </div>
 
-        <div className="bg-white p-4 rounded shadow">
-          <div className="text-sm text-gray-500">Open Issues</div>
-          <div className="text-2xl font-bold">{analytics.issues}</div>
-          <div className="text-xs text-gray-400 mt-1">
-            Open issues (fetched)
+        {/* PR Status Cards - NEW */}
+        <div className="grid grid-cols-3 gap-3 mb-6">
+          <div className={`${cardClass} text-center`}>
+            <div className="text-green-600 dark:text-green-400 text-2xl">✓</div>
+            <div className="text-xl font-bold text-green-600 dark:text-green-400">{prAgg.merged}</div>
+            <div className="text-xs text-gray-500 dark:text-gray-400">Merged</div>
+          </div>
+          <div className={`${cardClass} text-center`}>
+            <div className="text-blue-600 dark:text-blue-400 text-2xl">○</div>
+            <div className="text-xl font-bold text-blue-600 dark:text-blue-400">{prAgg.open}</div>
+            <div className="text-xs text-gray-500 dark:text-gray-400">Open</div>
+          </div>
+          <div className={`${cardClass} text-center`}>
+            <div className="text-red-600 dark:text-red-400 text-2xl">✕</div>
+            <div className="text-xl font-bold text-red-600 dark:text-red-400">{prAgg.closed}</div>
+            <div className="text-xs text-gray-500 dark:text-gray-400">Closed</div>
           </div>
         </div>
 
-        <div className="bg-white p-4 rounded shadow">
-          <div className="text-sm text-gray-500">Pull Requests</div>
-          <div className="text-2xl font-bold">{analytics.pulls}</div>
-          <div className="text-xs text-gray-400 mt-1">PRs (open+closed)</div>
-        </div>
-      </div>
-
-      {/* charts */}
-      <div className="grid md:grid-cols-2 gap-6 mt-6">
-        <div className="bg-white p-4 rounded shadow">
-          <h3 className="font-semibold mb-2">Overview</h3>
-          <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={overviewData}>
-              <XAxis dataKey="name" />
-              <YAxis />
-              <Tooltip />
+        {/* charts */}
+        <div className="grid md:grid-cols-2 gap-6 mb-6">
+          <div className={`${cardClass}`}>
+            <h3 className={`${titleClass} mb-2`}>📊 Overview</h3>
+            <ResponsiveContainer width="100%" height={200}>
+              <BarChart data={overviewData}>
+                <XAxis dataKey="name" tick={{ fill: theme === 'dark' ? '#9ca3af' : '#6b7280' }} />
+                <YAxis tick={{ fill: theme === 'dark' ? '#9ca3af' : '#6b7280' }} />
+                <Tooltip contentStyle={{ backgroundColor: theme === 'dark' ? '#1f2937' : '#fff', border: 'none' }} />
               <Bar dataKey="value" fill="#3b82f6" />
             </BarChart>
           </ResponsiveContainer>
-        </div>
+          </div>
 
-        <div className="bg-white p-4 rounded shadow">
-          <h3 className="font-semibold mb-2">Commit Frequency (recent)</h3>
-          <ResponsiveContainer width="100%" height={200}>
-            <LineChart data={commitsData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="name" />
-              <YAxis />
-              <Tooltip />
-              <Line
-                type="monotone"
-                dataKey="date"
-                stroke="#10b981"
-                dot={false}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
-      {/* languages & contributors */}
-      <div className="grid md:grid-cols-3 gap-6 mt-6">
-        <div className="bg-white p-4 rounded shadow">
-          <h4 className="font-semibold mb-2">Languages</h4>
-          {languages.length ? (
+          <div className={`${cardClass} mt-6`}>
+            <h3 className={`${titleClass} mb-2`}>📈 Commit Frequency (Area Chart)</h3>
             <ResponsiveContainer width="100%" height={200}>
-              <PieChart>
-                <Pie
-                  data={languages}
-                  dataKey="value"
-                  nameKey="name"
-                  outerRadius={70}
-                  label
-                >
-                  {languages.map((entry, idx) => (
-                    <Cell key={idx} fill={COLORS[idx % COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip />
-              </PieChart>
+              <AreaChart data={commitsData}>
+                <CartesianGrid strokeDasharray="3 3" stroke={theme === 'dark' ? '#374151' : '#e5e7eb'} />
+                <XAxis dataKey="name" tick={{ fill: theme === 'dark' ? '#9ca3af' : '#6b7280', fontSize: 10 }} />
+                <YAxis tick={{ fill: theme === 'dark' ? '#9ca3af' : '#6b7280' }} />
+                <Tooltip contentStyle={{ backgroundColor: theme === 'dark' ? '#1f2937' : '#fff', border: 'none' }} />
+                <Area type="monotone" dataKey="date" stroke="#10b981" fill="#10b981" fillOpacity={0.3} />
+              </AreaChart>
             </ResponsiveContainer>
-          ) : (
-            <div className="text-sm text-gray-500">No language data</div>
-          )}
-        </div>
-
-        <div className="bg-white p-4 rounded shadow">
-          <h4 className="font-semibold mb-2">Top Contributors</h4>
-          <div className="flex gap-3 flex-wrap">
-            {contributors.slice(0, 6).map((c) => (
-              <button
-                key={c.id}
-                onClick={() => buildContributorHeatmap(c.login)}
-                className="flex flex-col items-center bg-gray-50 p-3 rounded w-28 hover:shadow"
-              >
-                <img
-                  src={c.avatar_url}
-                  alt={c.login}
-                  className="w-10 h-10 rounded-full mb-1"
-                />
-                <div className="text-sm font-medium">{c.login}</div>
-                <div className="text-xs text-gray-500">
-                  {c.contributions} commits
-                </div>
-              </button>
-            ))}
           </div>
         </div>
 
-        <div className="bg-white p-4 rounded shadow">
-          <h4 className="font-semibold mb-2">Repo Health</h4>
-          <div className="text-sm mb-2">
-            License: <b>{licenseInfo?.license?.name || "Unknown"}</b>
-          </div>
-          {dependencyWarnings.length ? (
-            <div className="text-xs text-red-600">
-              Dependency manifest found — run vulnerability scan
-            </div>
-          ) : (
-            <div className="text-xs text-gray-500">
-              No dependency manifest detected in root (quick check)
-            </div>
-          )}
-          <div className="mt-3">
-            <a
-              className="text-sm text-blue-600 underline"
-              href={`${repoInfo.html_url}/security`}
-              target="_blank"
-              rel="noreferrer"
-            >
-              Open Security / Dependabot
-            </a>
-          </div>
-        </div>
-      </div>
-
-      {/* recent commits + branch list */}
-      <div className="grid md:grid-cols-3 gap-6 mt-6">
-        <div className="bg-white p-4 rounded shadow col-span-2">
-          <div className="flex justify-between items-center mb-3">
-            <h4 className="font-semibold">Recent Commits</h4>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setRecentCommits((r) => r.slice())}
-                className="px-3 py-1 bg-gray-200 rounded"
-              >
-                Refresh
-              </button>
-              <button
-                onClick={() =>
-                  alert("Open in VS Code (vscode:// not implemented)")
-                }
-                className="px-3 py-1 bg-slate-800 text-white rounded"
-              >
-                Open in VS Code
-              </button>
-            </div>
+        {/* languages & contributors */}
+        <div className="grid md:grid-cols-3 gap-6 mb-6">
+          <div className={`${cardClass}`}>
+            <h4 className={`${titleClass} mb-2`}>💻 Languages</h4>
+            {languages.length ? (
+              <>
+                <ResponsiveContainer width="100%" height={160}>
+                  <PieChart>
+                    <Pie
+                      data={languages}
+                      dataKey="value"
+                      nameKey="name"
+                      outerRadius={60}
+                      label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                      labelLine={false}
+                    >
+                      {languages.map((entry, idx) => (
+                        <Cell key={idx} fill={COLORS[idx % COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip contentStyle={{ backgroundColor: theme === 'dark' ? '#1f2937' : '#fff', border: 'none' }} />
+                  </PieChart>
+                </ResponsiveContainer>
+              </>
+            ) : (
+              <EmptyState message="No language data" icon="💻" />
+            )}
           </div>
 
-          <div className="space-y-2 max-h-64 overflow-auto">
-            {recentCommits.map((c) => (
-              <div
-                key={c.sha}
-                className="p-2 border rounded flex justify-between items-center"
+          <div className={`${cardClass}`}>
+            <div className="flex justify-between items-center mb-3">
+              <h4 className={`${titleClass}`}>👥 Top Contributors</h4>
+              <button
+                onClick={handleExportContributors}
+                className="text-xs px-2 py-1 bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 rounded hover:bg-green-200 dark:hover:bg-green-800 transition"
+                title="Export to CSV"
               >
-                <div>
-                  <div className="font-medium">
-                    {c.commit.message.split("\n")[0]}
-                  </div>
-                  <div className="text-xs text-gray-500">
-                    {new Date(
-                      c.commit.author?.date || c.commit.committer?.date
-                    ).toLocaleString()}
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
+                📥 CSV
+              </button>
+            </div>
+            {contributors.length > 0 ? (
+              <div className="flex flex-wrap gap-2">
+                {contributors.slice(0, 6).map((c) => (
                   <button
-                    onClick={() => fetchCommitDetails(c.sha)}
-                    className="px-3 py-1 bg-blue-600 text-white rounded text-sm"
+                    key={c.id}
+                    onClick={() => buildContributorHeatmap(c.login)}
+                    className="flex flex-col items-center bg-gray-50 dark:bg-gray-700 p-2 rounded-lg hover:shadow-md transition w-24"
                   >
-                    View
+                    <img
+                      src={c.avatar_url}
+                      alt={c.login}
+                      className="w-10 h-10 rounded-full mb-1"
+                    />
+                    <div className="text-xs font-medium text-gray-800 dark:text-gray-200 truncate w-full text-center">{c.login}</div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400">{c.contributions} commits</div>
                   </button>
-                  <a
-                    href={`${repoInfo.html_url}/commit/${c.sha}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="px-3 py-1 border rounded text-sm"
-                  >
-                    GitHub
-                  </a>
-                </div>
+                ))}
               </div>
-            ))}
+            ) : (
+              <EmptyState message="No contributors found" icon="👥" />
+            )}
+          </div>
+
+          <div className={`${cardClass}`}>
+            <h4 className={`${titleClass} mb-2`}>🏥 Repo Health</h4>
+            <div className={`text-sm mb-2 ${textClass}`}>
+              License: <b className="text-blue-600 dark:text-blue-400">{licenseInfo?.license?.name || "Unknown"}</b>
+            </div>
+            {dependencyWarnings.length ? (
+              <div className="text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/30 p-2 rounded">
+                ⚠️ Dependency issues detected
+              </div>
+            ) : (
+              <div className="text-xs text-gray-500 dark:text-gray-400">
+                ✅ No dependency issues
+              </div>
+            )}
+            <div className="mt-3">
+              <a
+                className="text-sm text-blue-600 dark:text-blue-400 hover:underline"
+                href={`${repoInfo.html_url}/security`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                🔒 Security / Dependabot →
+              </a>
+            </div>
           </div>
         </div>
 
-        {/* branches */}
-        <div className="bg-white p-4 rounded shadow">
-          <h4 className="font-semibold mb-2">Branches</h4>
-          <div className="space-y-2 max-h-64 overflow-auto">
-            {branchActivity.slice(0, 12).map((b) => (
-              <div
-                key={b.name}
-                className="flex justify-between items-center border-b py-2"
-              >
-                <div>
-                  <div className="font-medium">{b.name}</div>
-                  <div className="text-xs text-gray-500">
-                    Recent commits: {b.commits}
-                  </div>
-                </div>
-                <div className="text-right">
-                  <div className="text-xs">Health</div>
-                  <div className="text-sm font-semibold">
-                    {branchHealth[b.name] ?? "—"}
-                  </div>
-                </div>
+        {/* NEW: Recent Commits with Search */}
+        <div className="grid md:grid-cols-3 gap-6 mb-6">
+          <div className={`${cardClass} md:col-span-2`}>
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-3 gap-2">
+              <h4 className={`${titleClass}`}>📝 Recent Commits</h4>
+              <div className="flex flex-wrap gap-2">
+                {/* Search Input */}
+                <input
+                  type="text"
+                  placeholder="🔍 Search commits..."
+                  value={commitSearch}
+                  onChange={(e) => setCommitSearch(e.target.value)}
+                  className="px-3 py-1 text-sm border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white w-40"
+                />
+                <button
+                  onClick={handleExportCommits}
+                  className="px-2 py-1 text-xs bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 rounded hover:bg-green-200 dark:hover:bg-green-800 transition"
+                >
+                  📥 CSV
+                </button>
+                <button
+                  onClick={() => setRecentCommits((r) => r.slice())}
+                  className="px-2 py-1 text-xs bg-gray-100 dark:bg-gray-700 rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition"
+                >
+                  🔄
+                </button>
               </div>
-            ))}
-            {branchActivity.length === 0 && (
-              <div className="text-sm text-gray-500">No branches found.</div>
+            </div>
+
+            <div className="space-y-2 max-h-80 overflow-auto">
+              {filteredCommits.length > 0 ? (
+                filteredCommits.map((c) => (
+                  <div
+                    key={c.sha}
+                    className="p-3 border border-gray-200 dark:border-gray-700 rounded-lg flex flex-col md:flex-row justify-between items-start md:items-center gap-2 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium text-gray-800 dark:text-gray-200 truncate">
+                        {c.commit.message.split("\n")[0]}
+                      </div>
+                      <div className="flex flex-wrap gap-2 text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        <span>💻 {c.sha.slice(0, 7)}</span>
+                        <span>👤 {c.commit.author?.name || 'Unknown'}</span>
+                        <span>📅 {new Date(c.commit.author?.date || c.commit.committer?.date).toLocaleDateString()}</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => fetchCommitDetails(c.sha)}
+                        className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm transition"
+                      >
+                        View
+                      </button>
+                      <a
+                        href={`${repoInfo.html_url}/commit/${c.sha}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm hover:bg-gray-100 dark:hover:bg-gray-700 transition"
+                      >
+                        GitHub
+                      </a>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <EmptyState message={commitSearch ? "No commits match your search" : "No commits found"} icon="📝" />
+              )}
+            </div>
+
+            {/* Pagination */}
+            {commitsPage < totalCommitsPages && (
+              <div className="mt-4 text-center">
+                <button
+                  onClick={fetchMoreCommits}
+                  disabled={loadingMore}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg transition"
+                >
+                  {loadingMore ? 'Loading...' : 'Load More Commits'}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* NEW: Branches with Search */}
+        <div className={`${cardClass}`}>
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-3 gap-2">
+            <h4 className={`${titleClass}`}>🌿 Branches ({branchActivity.length})</h4>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                placeholder="🔍 Search..."
+                value={branchSearch}
+                onChange={(e) => setBranchSearch(e.target.value)}
+                className="px-2 py-1 text-xs border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white w-28"
+              />
+              <button
+                onClick={handleExportBranches}
+                className="px-2 py-1 text-xs bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 rounded hover:bg-green-200 dark:hover:bg-green-800 transition"
+              >
+                📥 CSV
+              </button>
+            </div>
+          </div>
+          <div className="space-y-2 max-h-80 overflow-auto">
+            {filteredBranches.length > 0 ? (
+              filteredBranches.map((b) => (
+                <div
+                  key={b.name}
+                  className="flex justify-between items-center p-2 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/50 transition"
+                >
+                  <div>
+                    <div className="font-medium text-gray-800 dark:text-gray-200">{b.name}</div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400">
+                      {b.commits} recent commits
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className={`text-xs ${textClass}`}>Health</div>
+                    <div className={`text-sm font-semibold ${
+                      (branchHealth[b.name] ?? 0) >= 70 ? 'text-green-600' :
+                      (branchHealth[b.name] ?? 0) >= 40 ? 'text-yellow-600' : 'text-red-600'
+                    }`}>
+                      {branchHealth[b.name] ?? "—"}
+                    </div>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <EmptyState message={branchSearch ? "No branches match" : "No branches found"} icon="🌿" />
             )}
           </div>
         </div>
       </div>
 
+      {/* NEW: Pull Requests Section with Search */}
+      <div className={`${cardClass} mb-6`}>
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-2">
+          <h4 className={`${titleClass}`}>🔀 Pull Requests ({filteredPRs.length})</h4>
+          <div className="flex flex-wrap gap-2">
+            <input
+              type="text"
+              placeholder="🔍 Search PRs..."
+              value={prSearch}
+              onChange={(e) => setPrSearch(e.target.value)}
+              className="px-3 py-1 text-sm border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white w-40"
+            />
+            <button
+              onClick={handleExportPRs}
+              className="px-2 py-1 text-xs bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 rounded hover:bg-green-200 dark:hover:bg-green-800 transition"
+            >
+              📥 CSV
+            </button>
+          </div>
+        </div>
+
+        {/* PR Status Badges */}
+        <div className="flex flex-wrap gap-3 mb-4">
+          <span className="px-3 py-1 bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 rounded-full text-sm">
+            Open: {prAgg.open}
+          </span>
+          <span className="px-3 py-1 bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 rounded-full text-sm">
+            Merged: {prAgg.merged}
+          </span>
+          <span className="px-3 py-1 bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300 rounded-full text-sm">
+            Closed: {prAgg.closed}
+          </span>
+        </div>
+
+        <div className="space-y-2 max-h-80 overflow-auto">
+          {filteredPRs.length > 0 ? (
+            filteredPRs.slice(0, 20).map((p) => (
+              <div
+                key={p.id}
+                className="p-3 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/50 transition"
+              >
+                <div className="flex justify-between items-start gap-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className={`px-2 py-0.5 text-xs rounded ${
+                        p.state === 'open' ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300' :
+                        p.merged_at ? 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300' :
+                        'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300'
+                      }`}>
+                        {p.merged_at ? 'Merged' : p.state}
+                      </span>
+                      <a
+                        href={p.html_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="font-medium text-blue-600 dark:text-blue-400 hover:underline truncate"
+                      >
+                        #{p.number} {p.title}
+                      </a>
+                    </div>
+                    <div className="flex flex-wrap gap-2 text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      <span>👤 {p.user?.login}</span>
+                      <span>📅 {new Date(p.created_at).toLocaleDateString()}</span>
+                      {p.merged_at && <span>✅ {new Date(p.merged_at).toLocaleDateString()}</span>}
+                    </div>
+                  </div>
+                  <a
+                    href={p.html_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-700 transition shrink-0"
+                  >
+                    View
+                  </a>
+                </div>
+              </div>
+            ))
+          ) : (
+            <EmptyState message={prSearch ? "No PRs match your search" : "No pull requests found"} icon="🔀" />
+          )}
+        </div>
+      </div>
+
       {/* Branch compare & PR analytics + top files */}
-      <div className="grid md:grid-cols-3 gap-6 mt-6">
-        <div className="bg-white p-4 rounded shadow">
-          <h4 className="font-semibold mb-3">Compare Branches</h4>
+      <div className="grid md:grid-cols-3 gap-6 mb-6">
+        <div className={`${cardClass}`}>
+          <h4 className={`${titleClass} mb-3`}>⚖️ Compare Branches</h4>
           <select
             value={compareBase}
             onChange={(e) => setCompareBase(e.target.value)}
-            className="border p-2 rounded w-full mb-2"
+            className="border border-gray-300 dark:border-gray-600 p-2 rounded w-full mb-2 dark:bg-gray-700 dark:text-white"
           >
             <option value="">Select base</option>
             {branches.map((b) => (
@@ -1004,7 +1441,7 @@ export default function RepoAnalytics() {
           <select
             value={compareHead}
             onChange={(e) => setCompareHead(e.target.value)}
-            className="border p-2 rounded w-full mb-2"
+            className="border border-gray-300 dark:border-gray-600 p-2 rounded w-full mb-2 dark:bg-gray-700 dark:text-white"
           >
             <option value="">Select head</option>
             {branches.map((b) => (
@@ -1015,43 +1452,69 @@ export default function RepoAnalytics() {
           </select>
           <button
             onClick={compareBranches}
-            className="w-full bg-indigo-600 text-white py-2 rounded"
+            className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2 rounded-lg transition"
           >
-            {loadingCompare ? "Comparing..." : "Compare"}
+            {loadingCompare ? "⏳ Comparing..." : "⚖️ Compare"}
           </button>
 
           {compareResult && (
-            <div className="mt-3 text-sm">
-              <div>
-                Commits ahead:{" "}
-                {compareResult.status === "identical"
-                  ? 0
-                  : compareResult?.commits?.length || 0}
+            <div className="mt-3 p-3 bg-gray-50 dark:bg-gray-700 rounded-lg text-sm">
+              <div className={`flex justify-between ${textClass}`}>
+                <span>Commits ahead:</span>
+                <b className="text-blue-600 dark:text-blue-400">
+                  {compareResult.status === "identical" ? 0 : compareResult?.commits?.length || 0}
+                </b>
               </div>
-              <div>Files changed: {compareResult?.files?.length || 0}</div>
-              <div>Total additions: {compareResult?.total_commits || "-"}</div>
+              <div className={`flex justify-between ${textClass}`}>
+                <span>Files changed:</span>
+                <b className="text-green-600 dark:text-green-400">{compareResult?.files?.length || 0}</b>
+              </div>
+              <div className={`flex justify-between ${textClass}`}>
+                <span>Total additions:</span>
+                <b className="text-purple-600 dark:text-purple-400">{compareResult?.total_commits || "-"}</b>
+              </div>
             </div>
           )}
         </div>
 
-        <div className="bg-white p-4 rounded shadow">
-          <h4 className="font-semibold mb-3">Pull Request Analytics</h4>
-          <div className="text-sm mb-2">
-            <div>
-              Total: <b>{prAgg.total}</b>
+        {/* Enhanced PR Analytics */}
+        <div className={`${cardClass}`}>
+          <h4 className={`${titleClass} mb-3`}>📈 PR Analytics</h4>
+          <div className="space-y-2 mb-4">
+            <div className={`flex justify-between ${textClass}`}>
+              <span>Total PRs</span>
+              <b className="text-gray-800 dark:text-white">{prAgg.total}</b>
             </div>
-            <div>
-              Open: <b>{prAgg.open}</b>
+            <div className="flex justify-between">
+              <span className="text-green-600">Open</span>
+              <b className="text-green-600 dark:text-green-400">{prAgg.open}</b>
             </div>
-            <div>
-              Closed: <b>{prAgg.closed}</b>
+            <div className="flex justify-between">
+              <span className="text-purple-600">Merged</span>
+              <b className="text-purple-600 dark:text-purple-400">{prAgg.merged}</b>
             </div>
-            <div>
-              Merged: <b>{prAgg.merged}</b>
+            <div className="flex justify-between">
+              <span className="text-red-600">Closed</span>
+              <b className="text-red-600 dark:text-red-400">{prAgg.closed}</b>
             </div>
           </div>
-          <h5 className="font-medium">Top PR Creators</h5>
-          <div className="mt-2">
+
+          {/* Merge Rate */}
+          <div className="mt-4">
+            <div className={`text-xs ${textClass} mb-1`}>Merge Rate</div>
+            <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+              <div
+                className="bg-green-500 h-2 rounded-full transition-all"
+                style={{ width: `${prAgg.total > 0 ? (prAgg.merged / prAgg.total) * 100 : 0}%` }}
+              />
+            </div>
+            <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              {prAgg.total > 0 ? Math.round((prAgg.merged / prAgg.total) * 100) : 0}% merged
+            </div>
+          </div>
+
+          <h5 className={`${titleClass} mt-4 mb-2`}>🏆 Top PR Creators</h5>
+          <div className="space-y-1">
             {(() => {
               const byAuthor = {};
               prs.forEach((p) => {
@@ -1060,12 +1523,15 @@ export default function RepoAnalytics() {
               });
               const authors = Object.entries(byAuthor)
                 .sort((a, b) => b[1] - a[1])
-                .slice(0, 6);
+                .slice(0, 5);
               return authors.length ? (
-                authors.map(([a, c]) => (
-                  <div key={a} className="flex justify-between">
-                    <div>{a}</div>
-                    <div className="text-xs text-gray-500">{c} PRs</div>
+                authors.map(([a, c], i) => (
+                  <div key={a} className="flex justify-between items-center">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs">{i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : ''}</span>
+                      <span className={`text-sm ${textClass}`}>{a}</span>
+                    </div>
+                    <span className="text-xs text-gray-500 dark:text-gray-400">{c} PRs</span>
                   </div>
                 ))
               ) : (
@@ -1075,43 +1541,50 @@ export default function RepoAnalytics() {
           </div>
         </div>
 
-        <div className="bg-white p-4 rounded shadow">
-          <h4 className="font-semibold mb-3">Top Edited Files</h4>
-          <div className="space-y-2 max-h-56 overflow-auto">
+        {/* Top Edited Files */}
+        <div className={`${cardClass}`}>
+          <h4 className={`${titleClass} mb-3`}>📁 Top Edited Files</h4>
+          <div className="space-y-2 max-h-48 overflow-auto">
             {topFiles.length ? (
-              topFiles.map((f) => (
+              topFiles.map((f, i) => (
                 <div
                   key={f.filename}
-                  className="flex justify-between items-center"
+                  className="flex justify-between items-center p-2 bg-gray-50 dark:bg-gray-700/50 rounded"
                 >
-                  <div className="text-sm">{f.filename}</div>
-                  <div className="text-xs text-gray-500">
+                  <div className="flex items-center gap-2 flex-1 min-w-0">
+                    <span className="text-xs text-gray-500">{i + 1}</span>
+                    <div className="text-sm truncate text-gray-800 dark:text-gray-200">{f.filename}</div>
+                  </div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400 ml-2">
                     {f.changes} changes
                   </div>
                 </div>
               ))
             ) : (
-              <div className="text-sm text-gray-500">No file data</div>
+              <EmptyState message="No file data" icon="📁" />
             )}
           </div>
 
-          <h5 className="mt-3 font-medium">Top Risky Files</h5>
-          <div className="mt-2 space-y-2">
+          <h5 className={`${titleClass} mt-4 mb-2`}>⚠️ Top Risky Files</h5>
+          <div className="space-y-2">
             {riskyFiles.length ? (
-              riskyFiles.map((f) => (
+              riskyFiles.slice(0, 5).map((f, i) => (
                 <div
                   key={f.filename}
-                  className="flex justify-between items-center"
+                  className="flex justify-between items-center p-2 bg-red-50 dark:bg-red-900/20 rounded"
                 >
-                  <div className="text-sm">{f.filename}</div>
-                  <div className="text-xs text-red-600">
-                    score {Math.round(f.score)}
+                  <div className="flex items-center gap-2 flex-1 min-w-0">
+                    <span className="text-xs text-red-500">{i + 1}</span>
+                    <div className="text-sm truncate text-red-700 dark:text-red-400">{f.filename}</div>
                   </div>
+                  <span className="text-xs font-medium text-red-600 dark:text-red-400">
+                    {Math.round(f.score)}
+                  </span>
                 </div>
               ))
             ) : (
-              <div className="text-sm text-gray-500">
-                No risky files detected
+              <div className="text-sm text-gray-500 dark:text-gray-400">
+                ✅ No risky files detected
               </div>
             )}
           </div>
@@ -1119,33 +1592,37 @@ export default function RepoAnalytics() {
       </div>
 
       {/* Contribution heatmap (and per-contributor) */}
-      <div className="grid md:grid-cols-3 gap-6 mt-6">
-        <div className="bg-white p-4 rounded shadow col-span-2">
-          <h4 className="font-semibold mb-3">Contribution Heatmap (90 days)</h4>
-          {renderHeatmap(heatmapData)}
+      <div className="grid md:grid-cols-3 gap-6 mb-6">
+        <div className={`${cardClass} md:col-span-2`}>
+          <h4 className={`${titleClass} mb-3`}>🔥 Contribution Heatmap (90 days)</h4>
+          <div className="dark:bg-gray-900 p-4 rounded-lg">
+            {renderHeatmap(heatmapData)}
+          </div>
         </div>
 
-        <div className="bg-white p-4 rounded shadow">
-          <h4 className="font-semibold mb-3">Contributor Heatmap</h4>
-          <div className="text-sm mb-2">Select contributor:</div>
+        <div className={`${cardClass}`}>
+          <h4 className={`${titleClass} mb-3`}>👤 Contributor Heatmap</h4>
+          <div className={`text-sm mb-2 ${textClass}`}>Select contributor:</div>
           <select
             value={selectedContributor || ""}
             onChange={(e) => buildContributorHeatmap(e.target.value)}
-            className="border p-2 rounded w-full"
+            className="border border-gray-300 dark:border-gray-600 p-2 rounded w-full dark:bg-gray-700 dark:text-white"
           >
-            <option value="">Select</option>
+            <option value="">Choose...</option>
             {contributors.map((c) => (
               <option key={c.login} value={c.login}>
-                {c.login}
+                {c.login} ({c.contributions} commits)
               </option>
             ))}
           </select>
           <div className="mt-4">
             {selectedContributor ? (
-              renderHeatmap(contribHeatmap)
+              <div className="dark:bg-gray-900 p-4 rounded-lg">
+                {renderHeatmap(contribHeatmap)}
+              </div>
             ) : (
-              <div className="text-sm text-gray-500">
-                Pick a contributor to view their activity heatmap.
+              <div className="text-sm text-gray-500 dark:text-gray-400 p-4 text-center">
+                Pick a contributor above to view their activity heatmap.
               </div>
             )}
           </div>
@@ -1154,13 +1631,13 @@ export default function RepoAnalytics() {
 
       {/* Diff & commit details */}
       {selectedCommit && (
-        <div className="bg-white p-4 rounded shadow mt-6">
-          <div className="flex justify-between items-start">
+        <div className={`${cardClass} mb-6`}>
+          <div className="flex flex-col md:flex-row justify-between items-start gap-2 mb-4">
             <div>
-              <h4 className="font-semibold">
-                Commit {selectedCommit.sha?.substring(0, 7)}
+              <h4 className={`${titleClass}`}>
+                📋 Commit Details: {selectedCommit.sha?.substring(0, 7)}
               </h4>
-              <div className="text-sm text-gray-600">
+              <div className={`text-sm ${textClass}`}
                 {selectedCommit.commit?.message}
               </div>
               <div className="text-xs text-gray-500">
@@ -1343,9 +1820,10 @@ export default function RepoAnalytics() {
       )}
 
       {/* footer small report */}
-      <div className="mt-6 text-xs text-gray-500">
+      <div className="mt-6 text-xs text-gray-500 dark:text-gray-400 text-center">
         Generated by Project Mitra • {new Date().toLocaleString()}
       </div>
-    </div>
+      </div>
+    </MobileResponsive>
   );
 }
