@@ -4,11 +4,13 @@ import dotenv from 'dotenv';
 import githubRoutes from './routes/github.js';
 import aiRoutes from './routes/ai.js';
 import healthRoutes from './routes/health.js';
+import oauthRoutes from './routes/oauth.js';
+import repoRoutes from './routes/repo.js';
 
 dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 5000;
 
 // Middleware
 app.use(cors({
@@ -22,6 +24,8 @@ app.use(express.json({ limit: '10mb' }));
 app.use('/api/github', githubRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/health', healthRoutes);
+app.use('/api/oauth', oauthRoutes);
+app.use('/api/repo', repoRoutes);
 
 // Root endpoint
 app.get('/', (req, res) => {
@@ -31,7 +35,9 @@ app.get('/', (req, res) => {
     endpoints: {
       health: '/api/health',
       github: '/api/github/*',
-      ai: '/api/ai/*'
+      ai: '/api/ai/*',
+      oauth: '/api/oauth/*',
+      repo: '/api/repo/*'
     }
   });
 });
