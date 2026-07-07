@@ -4,7 +4,7 @@ const router = express.Router();
 
 const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID || 'Ov23li2riPJ3NUzq3sol';
 const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET || 'd70c958f98e4ba2524560c538bb95657c4784445';
-const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000/github-integration';
 
 // GitHub OAuth Configuration
 const GITHUB_OAUTH_URL = 'https://github.com/login/oauth/authorize';

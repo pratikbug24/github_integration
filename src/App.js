@@ -15,6 +15,7 @@ import RepoAnalytics from "./pages/RepoAnalytics";
 import GithubIntegration from "./pages/GithubIntegration";
 import GithubCodeEditor from "./pages/GithubCodeEditor";
 import RepoList from "./components/RepoList";
+import RepoManager from "./components/RepoManager";
 
 function App() {
   return (
@@ -30,6 +31,7 @@ function App() {
 
             <Route path="/github-integration" element={<GithubIntegration />} />
             <Route path="/github/repolist" element={<RepoList />} />
+            <Route path="/github/repo-manager" element={<RepoManager />} />
             <Route
               path="/github/analytics/:username/:repoName"
               element={<RepoAnalytics />}

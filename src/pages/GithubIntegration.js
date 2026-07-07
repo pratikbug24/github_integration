@@ -1,24 +1,65 @@
 import React, { useState, useEffect } from "react";
 import axios from "axios";
+import { useNavigate } from "react-router-dom";
 import RepoList from "../components/RepoList";
+import { Settings, FolderPlus, LogOut } from "lucide-react";
+
+// Backend API URL
+const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 
 export default function GithubIntegration() {
   const [token, setToken] = useState("");
   const [user, setUser] = useState(null);
   const [repos, setRepos] = useState([]);
   const [loading, setLoading] = useState(false);
+  const navigate = useNavigate();
 
   // 🔄 Load token from URL or localStorage
   useEffect(() => {
-    const urlToken = new URLSearchParams(window.location.search).get("token");
+    const params = new URLSearchParams(window.location.search);
+    const urlToken = params.get("token");
+    const urlUsername = params.get("username");
+    const urlAvatar = params.get("avatar");
+    const urlName = params.get("name");
+    const urlError = params.get("error");
     const storedToken = localStorage.getItem("github_token");
 
     if (urlToken) {
+      // OAuth callback with token - Save ALL user data to localStorage
       localStorage.setItem("github_token", urlToken);
+      localStorage.setItem("github_username", urlUsername || '');
+      localStorage.setItem("github_avatar", urlAvatar || '');
+      localStorage.setItem("github_name", urlName || '');
+      localStorage.setItem("github_login_time", new Date().toISOString());
+      
+      console.log("✅ Token saved to localStorage");
+      console.log("Username:", urlUsername);
+      
       setToken(urlToken);
-      window.history.replaceState({}, document.title, "/github-integration"); // clean URL
+      setUser({
+        login: urlUsername,
+        avatar_url: urlAvatar,
+        name: urlName
+      });
+      
+      window.history.replaceState({}, document.title, "/github-integration");
+    } else if (urlError) {
+      // OAuth error
+      alert(`OAuth Error: ${urlError}`);
+      window.history.replaceState({}, document.title, "/github-integration");
     } else if (storedToken) {
+      // Load from localStorage
+      const storedUsername = localStorage.getItem("github_username");
+      const storedAvatar = localStorage.getItem("github_avatar");
+      const storedName = localStorage.getItem("github_name");
+      
+      console.log("✅ Token loaded from localStorage");
       setToken(storedToken);
+      setUser({
+        login: storedUsername,
+        avatar_url: storedAvatar,
+        name: storedName
+      });
     }
   }, []);
 
@@ -28,7 +69,7 @@ export default function GithubIntegration() {
 
     const fetchUser = async () => {
       try {
-        const res = await axios.get("https://api.github.com/user", {
+        const res = await axios.get(`${API_URL}/api/github/user`, {
           headers: { Authorization: `Bearer ${token}` },
         });
 
@@ -51,7 +92,7 @@ export default function GithubIntegration() {
     setLoading(true);
     try {
       const res = await axios.get(
-        `https://api.github.com/users/${username}/repos?per_page=200`,
+        `${API_URL}/api/github/users/${username}/repos?per_page=200`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
       setRepos(res.data);
@@ -62,10 +103,29 @@ export default function GithubIntegration() {
     setLoading(false);
   };
 
-  // 🔐 Redirect to your backend OAuth URL
-  const handleGithubLogin = () => {
-    window.location.href =
-      "https://project-mitra.infinityfree.me/github_integration_oauth.php";
+  // 🔐 Redirect to Node.js backend OAuth
+  const handleGithubLogin = async () => {
+    try {
+      // Get OAuth URL from backend
+      console.log("Fetching OAuth URL from:", `${API_URL}/api/oauth/github`);
+      const res = await axios.get(`${API_URL}/api/oauth/github`);
+      console.log("OAuth Response:", res.data);
+      
+      if (res.data.authUrl) {
+        window.location.href = res.data.authUrl;
+      } else {
+        console.error("OAuth not configured:", res.data);
+        alert("OAuth not configured on server. Check server .env file.");
+      }
+    } catch (error) {
+      console.error("=== OAuth Error ===");
+      console.error("Status:", error.response?.status);
+      console.error("Status Text:", error.response?.statusText);
+      console.error("Data:", error.response?.data);
+      console.error("Message:", error.message);
+      console.error("Full Error:", error);
+      alert(`Failed to initiate OAuth. Check console for details.`);
+    }
   };
 
   return (
@@ -100,9 +160,36 @@ export default function GithubIntegration() {
                 alt="avatar"
                 className="h-12 w-12 rounded-full"
               />
-              <div>
+              <div className="flex-1">
                 <h3 className="font-bold">{user.name || user.login}</h3>
                 <p className="text-gray-600">@{user.login}</p>
+                <p className="text-xs text-gray-400">Logged in: {localStorage.getItem("github_login_time")}</p>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => navigate('/github/repo-manager')}
+                  className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition"
+                >
+                  <FolderPlus className="w-4 h-4" />
+                  Manage Repos
+                </button>
+                <button
+                  onClick={() => {
+                    if (confirm("Are you sure you want to logout?")) {
+                      localStorage.removeItem("github_token");
+                      localStorage.removeItem("github_username");
+                      localStorage.removeItem("github_avatar");
+                      localStorage.removeItem("github_name");
+                      localStorage.removeItem("github_login_time");
+                      localStorage.removeItem("github_user");
+                      window.location.reload();
+                    }
+                  }}
+                  className="flex items-center gap-2 bg-red-100 dark:bg-red-900 text-red-600 px-4 py-2 rounded-lg hover:bg-red-200 dark:hover:bg-red-800 transition"
+                >
+                  <LogOut className="w-4 h-4" />
+                  Logout
+                </button>
               </div>
             </div>
           </div>

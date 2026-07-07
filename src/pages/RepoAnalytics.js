@@ -128,6 +128,15 @@ export default function RepoAnalytics() {
 
   // refs
   const reportRef = useRef();
+  const overviewRef = useRef(null);
+const languageRef = useRef(null);
+const commitsRef = useRef(null);
+const prRef = useRef(null);
+const branchRef = useRef(null);
+const compareRef = useRef(null);
+const heatmapRef = useRef(null);
+const contributorRef = useRef(null);
+const commitDetailsRef = useRef(null);
 
 
   // core states
@@ -226,6 +235,13 @@ export default function RepoAnalytics() {
     );
   }, [recentCommits, commitSearch]);
 
+
+  const scrollToSection = (ref) => {
+    ref.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  };
 
   const filteredPRs = useMemo(() => {
     if (!prSearch) return prs;
@@ -1218,6 +1234,76 @@ Format your response with:
           </div>
         </div>
 
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow p-4 mb-6">
+  <h3 className="font-semibold mb-3 text-gray-800 dark:text-white">
+    🚀 Quick Navigation
+  </h3>
+
+  <div className="flex flex-wrap gap-3">
+    <button
+      onClick={() => scrollToSection(overviewRef)}
+      className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700"
+    >
+      📊 Overview
+    </button>
+
+    <button
+      onClick={() => scrollToSection(languageRef)}
+      className="px-4 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700"
+    >
+      💻 Languages
+    </button>
+
+    <button
+      onClick={() => scrollToSection(commitsRef)}
+      className="px-4 py-2 rounded-lg bg-purple-600 text-white hover:bg-purple-700"
+    >
+      📝 Commits
+    </button>
+
+    <button
+      onClick={() => scrollToSection(prRef)}
+      className="px-4 py-2 rounded-lg bg-pink-600 text-white hover:bg-pink-700"
+    >
+      🔀 Pull Requests
+    </button>
+
+    <button
+      onClick={() => scrollToSection(branchRef)}
+      className="px-4 py-2 rounded-lg bg-orange-600 text-white hover:bg-orange-700"
+    >
+      🌿 Branches
+    </button>
+
+    <button
+      onClick={() => scrollToSection(compareRef)}
+      className="px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700"
+    >
+      ⚖️ Compare
+    </button>
+
+    <button
+      onClick={() => scrollToSection(heatmapRef)}
+      className="px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700"
+    >
+      🔥 Heatmap
+    </button>
+
+    <button
+      onClick={() => scrollToSection(contributorRef)}
+      className="px-4 py-2 rounded-lg bg-cyan-600 text-white hover:bg-cyan-700"
+    >
+      👥 Contributors
+    </button>
+
+    <button
+      onClick={() => scrollToSection(commitDetailsRef)}
+      className="px-4 py-2 rounded-lg bg-gray-700 text-white hover:bg-black"
+    >
+      📋 Commit Details
+    </button>
+  </div>
+</div>
 
         {/* Top overview - Dark mode cards */}
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3 md:gap-4 mb-6">
@@ -1231,6 +1317,7 @@ Format your response with:
             </div>
           </div>
 
+           
 
           <div className={`${cardClass} border-l-4 border-yellow-500`}>
             <div className={`text-sm ${textClass}`}>📋 Open Issues</div>
@@ -1276,6 +1363,7 @@ Format your response with:
 
 
         {/* charts */}
+        <div ref={overviewRef}>
         <div className="grid md:grid-cols-2 gap-6 mb-6">
           <div className={`${cardClass}`}>
             <h3 className={`${titleClass} mb-2`}>📊 Overview</h3>
@@ -1303,9 +1391,10 @@ Format your response with:
             </ResponsiveContainer>
           </div>
         </div>
-
+        </div>
 
         {/* languages & contributors */}
+        <div ref={languageRef} className="grid md:grid-cols-3 gap-6 mb-6"></div>
         <div className="grid md:grid-cols-3 gap-6 mb-6">
           <div className={`${cardClass}`}>
             <h4 className={`${titleClass} mb-2`}>💻 Languages</h4>
@@ -1334,7 +1423,8 @@ Format your response with:
             )}
           </div>
 
-
+                 {/* Top Contributor  */}
+                 <div ref={contributorRef}>
           <div className={`${cardClass}`}>
             <div className="flex justify-between items-center mb-3">
               <h4 className={`${titleClass}`}>👥 Top Contributors</h4>
@@ -1368,6 +1458,7 @@ Format your response with:
               <EmptyState message="No contributors found" icon="👥" />
             )}
           </div>
+          </div>
 
 
           <div className={`${cardClass}`}>
@@ -1399,6 +1490,7 @@ Format your response with:
 
 
         {/* NEW: Recent Commits with Search */}
+        <div ref={commitsRef} className="grid md:grid-cols-3 gap-6 mb-6"></div>
         <div className="grid md:grid-cols-3 gap-6 mb-6">
           <div className={`${cardClass} md:col-span-2`}>
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-3 gap-2">
@@ -1537,6 +1629,7 @@ Format your response with:
 
 
         {/* NEW: Pull Requests Section with Search */}
+        <div ref={prRef} className={`${cardClass} mb-6`}></div>
         <div className={`${cardClass} mb-6`}>
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-2">
             <h4 className={`${titleClass}`}>🔀 Pull Requests ({filteredPRs.length})</h4>
@@ -1623,6 +1716,7 @@ Format your response with:
 
 
         {/* Branch compare & PR analytics + top files */}
+        <div ref={compareRef} className="grid md:grid-cols-3 gap-6 mb-6"></div>
         <div className="grid md:grid-cols-3 gap-6 mb-6">
           <div className={`${cardClass}`}>
             <h4 className={`${titleClass} mb-3`}>⚖️ Compare Branches</h4>
@@ -1799,6 +1893,7 @@ Format your response with:
 
 
         {/* Contribution heatmap (and per-contributor) */}
+        <div ref={heatmapRef} className="grid md:grid-cols-3 gap-6 mb-6"></div>
         <div className="grid md:grid-cols-3 gap-6 mb-6">
           <div className={`${cardClass} md:col-span-2`}>
             <h4 className={`${titleClass} mb-3`}>🔥 Contribution Heatmap (90 days)</h4>
@@ -1839,6 +1934,7 @@ Format your response with:
 
 
         {/* Diff & commit details */}
+        <div ref={commitDetailsRef} className={`${cardClass} mb-6`}></div>
         {selectedCommit && (
           <div className={`${cardClass} mb-6`}>
             <div className="flex flex-col md:flex-row justify-between items-start gap-2 mb-4">
